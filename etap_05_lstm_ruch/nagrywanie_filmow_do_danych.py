@@ -2,13 +2,13 @@ import cv2
 import mediapipe as mp
 import os
 import time
-import keyboard
 
 # --- KONFIGURACJA ---
 NAZWA_FOLDERU = "../nagrania_gestow"
 PLIK_PLANU = "plan_nagrania.txt"
-ROZDZIELCZOSC = (1920, 1080)
+ROZDZIELCZOSC = (1280, 720)
 FPS = 30.0
+KLATKI_NA_NAGRANIE = 30
 
 if not os.path.exists(NAZWA_FOLDERU):
     os.makedirs(NAZWA_FOLDERU)
@@ -54,10 +54,14 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ROZDZIELCZOSC[1])
 
 is_recording = False
 out = None
+klatek_nagranych = 0
+czas_ostatniej_klatki = time.time()
+frame_interval = 1.0 / FPS
 
 print("\n--- KAMERA URUCHOMIONA ---")
-print("PRZYTRZYMAJ [SPACJĘ], by nagrywać ruch. PUŚĆ, aby zapisać film.")
+print("Wciśnij [SPACJĘ] w oknie kamery, aby rozpocząć nagranie (30 klatek).")
 print("Wciśnij [Q] w oknie kamery, aby wyjść z programu.")
+print(f"Ustawienia: {ROZDZIELCZOSC[0]}x{ROZDZIELCZOSC[1]} @ {FPS} FPS\n")
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -76,48 +80,62 @@ while cap.isOpened():
         for hand_landmarks in wyniki.multi_hand_landmarks:
             mp_drawing.draw_landmarks(display_frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-    # --- LOGIKA NAGRYWANIA (TRZYMANIE SPACJI) ---
-    if keyboard.is_pressed('space'):
-        if not is_recording:
-            # START NAGRYWANIA
-            is_recording = True
-            sciezka_klasy = os.path.join(NAZWA_FOLDERU, aktualna_litera)
-            nazwa_pliku = f"{aktualna_litera}_{int(time.time() * 1000)}.mp4"
-            sciezka_zapisu = os.path.join(sciezka_klasy, nazwa_pliku)
-            
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(sciezka_zapisu, fourcc, FPS, ROZDZIELCZOSC)
-            print(f"Nagrywanie: {nazwa_pliku}...")
+    # --- OBSŁUGA KLAWISZY W OPENCV ---
+    key = cv2.waitKey(1) & 0xFF
 
-        # Zapis czystej klatki do pliku
-        out.write(frame)
+    # Zakończenie programu
+    if key == ord('q'):
+        print("Przerwano przez użytkownika (Klawisz Q).")
+        break
+
+    # --- LOGIKA NAGRYWANIA (SPACJA) ---
+    # Kod ASCII dla spacji to 32, można też użyć ord(' ')
+    if key == ord(' ') and not is_recording:
+        is_recording = True
+        klatek_nagranych = 0
+        czas_ostatniej_klatki = time.time()
+        sciezka_klasy = os.path.join(NAZWA_FOLDERU, aktualna_litera)
+        nazwa_pliku = f"{aktualna_litera}_{int(time.time() * 1000)}.mp4"
+        sciezka_zapisu = os.path.join(sciezka_klasy, nazwa_pliku)
         
-        # Wyświetlanie UI o nagrywaniu
+        fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+        out = cv2.VideoWriter(sciezka_zapisu, fourcc, FPS, ROZDZIELCZOSC)
+        print(f"Nagrywanie: {nazwa_pliku}...")
+
+    # Zapis klatek, jeśli nagrywanie jest aktywne
+    if is_recording:
+        out.write(frame)
+        klatek_nagranych += 1
+        
+        procent = int((klatek_nagranych / KLATKI_NA_NAGRANIE) * 100)
+        
         cv2.circle(display_frame, (50, 50), 20, (0, 0, 255), -1)
-        cv2.putText(display_frame, "NAGRYWANIE RUCHU...", (80, 60), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
-    
-    else:
-        if is_recording:
-            # STOP NAGRYWANIA (Puszczono spację)
+        cv2.putText(display_frame, f"NAGRYWANIE: {klatek_nagranych}/{KLATKI_NA_NAGRANIE}", (80, 60), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 0, 255), 2)
+        
+        bar_width = 200
+        bar_height = 20
+        filled = int((procent / 100) * bar_width)
+        cv2.rectangle(display_frame, (50, 90), (50 + bar_width, 90 + bar_height), (100, 100, 100), -1)
+        cv2.rectangle(display_frame, (50, 90), (50 + filled, 90 + bar_height), (0, 255, 0), -1)
+        cv2.putText(display_frame, f"{procent}%", (260, 105), cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 1)
+        
+        if klatek_nagranych >= KLATKI_NA_NAGRANIE:
             is_recording = False
             out.release()
             nagran_zrobionych += 1
             print(f"[ZAPISANO] Wykonano {nagran_zrobionych}/{ilosc_docelowa} nagrań dla '{aktualna_litera}'.")
 
-            # --- SPRAWDZANIE CZY SKOŃCZYLIŚMY AKTUALNĄ LITERĘ ---
             if nagran_zrobionych >= ilosc_docelowa:
                 aktualny_krok += 1
                 
-                # Czy to był koniec całego planu?
                 if aktualny_krok >= len(harmonogram):
                     print("\n=== GRATULACJE! CAŁY PLAN WYKONANY! ===")
                     cv2.rectangle(display_frame, (10, 10), (800, 150), (0, 255, 0), -1)
                     cv2.putText(display_frame, "PLAN ZAKONCZONY!", (30, 100), cv2.FONT_HERSHEY_DUPLEX, 2, (0, 0, 0), 3)
-                    cv2.imshow('Zbieranie Danych', cv2.resize(display_frame, (960, 540)))
-                    cv2.waitKey(3000) # Pokaż ekran końcowy przez 3 sekundy
+                    cv2.imshow('Zbieranie Danych (Spacja = Nagrywaj)', display_frame)
+                    cv2.waitKey(3000)
                     break
                 else:
-                    # Przejście do następnej litery
                     aktualna_litera = harmonogram[aktualny_krok][0]
                     ilosc_docelowa = harmonogram[aktualny_krok][1]
                     nagran_zrobionych = 0
@@ -127,19 +145,18 @@ while cap.isOpened():
                     
                     print(f"\n---> ZMIANA ZADANIA! Teraz nagrywaj: {aktualna_litera} <---")
 
-    # --- UI STATUSU NA EKRANIE ---
     tekst_info = f"Zadanie: {aktualna_litera} | Zrobiono: {nagran_zrobionych}/{ilosc_docelowa}"
-    cv2.rectangle(display_frame, (10, 80), (700, 130), (0, 0, 0), -1)
-    cv2.putText(display_frame, tekst_info, (20, 115), cv2.FONT_HERSHEY_DUPLEX, 1.2, (0, 255, 255), 2)
+    cv2.rectangle(display_frame, (10, 10), (400, 50), (0, 0, 0), -1)
+    cv2.putText(display_frame, tekst_info, (20, 35), cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 255, 255), 2)
 
-    # Wyświetlanie obrazu (zmniejszonego o połowę, żeby Full HD zmieściło się wygodnie na monitorze)
-    cv2.imshow('Zbieranie Danych (Spacja = Nagrywaj)', cv2.resize(display_frame, (960, 540)))
+    cv2.imshow('Zbieranie Danych (Spacja = Nagrywaj)', display_frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        print("Przerwano przez użytkownika (Klawisz Q).")
-        break
+    czas_obecny = time.time()
+    czas_przeszlosci = czas_obecny - czas_ostatniej_klatki
+    if czas_przeszlosci < frame_interval:
+        time.sleep(frame_interval - czas_przeszlosci)
+    czas_ostatniej_klatki = time.time()
 
-# Sprzątanie
 if is_recording and out is not None:
     out.release()
 cap.release()
