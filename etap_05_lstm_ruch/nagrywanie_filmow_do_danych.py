@@ -5,8 +5,8 @@ import time
 import platform
 
 # --- KONFIGURACJA ---
-NAZWA_FOLDERU = "../nagrania_gestow"
-PLIK_PLANU = "plan_nagrania.txt"
+NAZWA_FOLDERU = "../nagrania_gestow_ruchow"
+PLIK_PLANU = "plan_nagrania_tylko_ruchome.txt"
 ROZDZIELCZOSC = (1280, 720)
 FPS = 30.0
 KLATKI_NA_NAGRANIE = 60
@@ -17,8 +17,14 @@ system_operacyjny = platform.system()
 
 if system_operacyjny == "Windows":
     backend = cv2.CAP_DSHOW
+    cap = cv2.VideoCapture(0, backend)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
 elif system_operacyjny == "Linux":
     backend = cv2.CAP_V4L2
+    cap = cv2.VideoCapture(0, backend)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+    cap.set(cv2.CAP_PROP_EXPOSURE, 100)
 elif system_operacyjny == "Darwin": # macOS
     backend = cv2.CAP_AVFOUNDATION
 else:
@@ -26,7 +32,6 @@ else:
 
 # --- 2. INICJALIZACJA KAMERY ---
 # Jeśli na Linuxie masz problem z indeksem, zmień 1 na 0 lub 2.
-cap = cv2.VideoCapture(0, backend)
 
 # --- 3. SZTUCZKA SPRZĘTOWA Z MJPEG ---
 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
